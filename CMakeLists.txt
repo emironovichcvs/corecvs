@@ -10,7 +10,7 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/Modules
 option(USE_TBB "Should compile with TBB" YES)
 IF ( USE_TBB )
     MESSAGE( STATUS "Including TBB on CORECVS build" )
-    find_package(TBB REQUIRED)
+    find_package(TBB)
     if (TBB_LIBRARY)
         add_definitions(-DWITH_TBB)
     endif()
@@ -167,23 +167,23 @@ include(cmake/CMakeCpuOptions.cmake)
 # Actual subprojects
 #
 
-include(cmake/googletest.cmake)
-fetch_googletest(
-    ${PROJECT_SOURCE_DIR}/cmake
-    ${PROJECT_BINARY_DIR}/googletest
-    )
+#include(cmake/googletest.cmake)
+#fetch_googletest(
+#    ${PROJECT_SOURCE_DIR}/cmake
+#    ${PROJECT_BINARY_DIR}/googletest
+#    )
 
 file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 add_subdirectory(core)
-add_subdirectory(utils)
+#add_subdirectory(utils)
 
-add_subdirectory(test)
+#add_subdirectory(test)
 #add_subdirectory(applications)
 #add_subdirectory(tools)
 
 
-enable_testing()
+#enable_testing()
 #add_subdirectory(test-core)
 #add_subdirectory(test-core/-perf)
 
