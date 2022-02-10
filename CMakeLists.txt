@@ -7,7 +7,7 @@ set (CoreCVS_VERSION_MINOR 0)
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/Modules/")
 
 # Overall dependances
-option(USE_TBB "Should compile with TBB" YES)
+option(USE_TBB "Should compile with TBB" NO)
 IF ( USE_TBB )
     MESSAGE( STATUS "Including TBB on CORECVS build" )
     find_package(TBB)
@@ -93,7 +93,7 @@ ENDIF ()
 option(USE_AVCODEC "Should compile with AVCODEC" YES)
 IF ( USE_AVCODEC )
     MESSAGE( STATUS "Including AVCODEC wherever possible" )
-    find_package( AVCodec )    
+    find_package( AVCodec )
     IF ( AVCODEC_FOUND )
         MESSAGE( STATUS "Including AVCODEC found" )
     ELSE()
@@ -151,7 +151,7 @@ ENDIF ()
 
 ###
 #
-# Debug/Release switch 
+# Debug/Release switch
 
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -g")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g")
