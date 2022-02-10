@@ -7,14 +7,14 @@ set (CoreCVS_VERSION_MINOR 0)
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/Modules/")
 
 # Overall dependances
-option(USE_TBB "Should compile with TBB" NO)
-IF ( USE_TBB )
-    MESSAGE( STATUS "Including TBB on CORECVS build" )
-    find_package(TBB)
-    if (TBB_LIBRARY)
-        add_definitions(-DWITH_TBB)
-    endif()
-ENDIF ()
+#option(USE_TBB "Should compile with TBB" NO)
+#IF ( USE_TBB )
+#    MESSAGE( STATUS "Including TBB on CORECVS build" )
+#    find_package(TBB)
+#    if (TBB_LIBRARY)
+#        add_definitions(-DWITH_TBB)
+#    endif()
+#ENDIF ()
 
 
 #option(USE_TBB "Should compile with FILESYSTEM" YES)
