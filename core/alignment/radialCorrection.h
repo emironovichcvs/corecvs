@@ -107,6 +107,7 @@ public:
 
 
     RadialCorrection invertCorrection   (int h, int w, int step);
+    RadialCorrection invertCorrection_hcc   (int h, int w, int step);
 
 #if 0
     RadialCorrection invertCorrectionLSE(int h, int w, int step);
