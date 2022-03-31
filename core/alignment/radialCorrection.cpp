@@ -100,7 +100,7 @@ class RadialCorrectionInversionCostFunction : public FunctionArgs {
  private:
   static int getOutputs(int steps) { return 2 * steps * steps; }
 };
-class RadialCorrectionInversionCostFunctionHcc : public FunctionArgs {
+class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
  public:
   static const unsigned MODEL_POWER = 4;
   static const unsigned MODEL_SIZE  = 4;
@@ -111,7 +111,7 @@ class RadialCorrectionInversionCostFunctionHcc : public FunctionArgs {
   int               mH;
   int               mW;
 
-  RadialCorrectionInversionCostFunctionHcc(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w)
+  RadialCorrectionInversionCostFunctionk1k2(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w)
       : FunctionArgs(MODEL_SIZE, getOutputs(steps))
       , mInput(input)
       , mGuess(guess)
@@ -153,8 +153,7 @@ class RadialCorrectionInversionCostFunctionHcc : public FunctionArgs {
     for (unsigned i = 0; i < MODEL_SIZE; i++) {
       if (i % 2 == 1) {
         params.mKoeff[i] = in[i];
-      }
-      else {
+      } else {
         params.mKoeff[i] = 0;
       }
     }
@@ -175,18 +174,17 @@ class RadialCorrectionInversionCostFunctionHcc : public FunctionArgs {
  private:
   static int getOutputs(int steps) { return 2 * steps * steps; }
 };
-RadialCorrection RadialCorrection::invertCorrection_hcc(int h, int w, int step)
-{
-  LensDistortionModelParameters result = set_result(RadialCorrectionInversionCostFunctionHcc::MODEL_POWER);
+RadialCorrection RadialCorrection::invertCorrectionk1k2(int h, int w, int step) {
+  LensDistortionModelParameters result = set_result(RadialCorrectionInversionCostFunctionk1k2::MODEL_POWER);
   /* Pack the guess and launch optimization */
-  RadialCorrection guess(result);
-  RadialCorrectionInversionCostFunctionHcc cost(*this, guess, step, h, w);
+  RadialCorrection                         guess(result);
+  RadialCorrectionInversionCostFunctionk1k2 cost(*this, guess, step, h, w);
 
   LevenbergMarquardt lmFit = set_LM_params();
-  lmFit.f = &cost;
+  lmFit.f                  = &cost;
 
   vector<double> initialGuess(cost.inputs);
-  RadialCorrectionInversionCostFunctionHcc::fillWithRadial(guess, &(initialGuess[0]));
+  RadialCorrectionInversionCostFunctionk1k2::fillWithRadial(guess, &(initialGuess[0]));
   cout << guess.mParams << endl;
 
   EllipticalApproximation1d stats;
@@ -197,7 +195,7 @@ RadialCorrection RadialCorrection::invertCorrection_hcc(int h, int w, int step)
   vector<double> target(cost.outputs, 0.0);
   vector<double> optimal = lmFit.fit(initialGuess, target);
 
-  guess = RadialCorrectionInversionCostFunctionHcc::updateWithModel(guess, &(optimal[0]));
+  guess = RadialCorrectionInversionCostFunctionk1k2::updateWithModel(guess, &(optimal[0]));
 
   /* Cost */
 
