@@ -100,10 +100,9 @@ class RadialCorrectionInversionCostFunction : public FunctionArgs {
  private:
   static int getOutputs(int steps) { return 2 * steps * steps; }
 };
-class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
+class RadialCorrectionInversionCostFunctionEven : public FunctionArgs {
  public:
-  static const unsigned MODEL_POWER = 4;
-  static const unsigned MODEL_SIZE  = 4;
+  int model_size;
 
   RadialCorrection &mInput;
   RadialCorrection &mGuess;
@@ -111,18 +110,20 @@ class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
   int               mH;
   int               mW;
 
-  RadialCorrectionInversionCostFunctionk1k2(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w)
-      : FunctionArgs(MODEL_SIZE, getOutputs(steps))
+  RadialCorrectionInversionCostFunctionEven(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w, int const model_size)
+      : FunctionArgs(model_size, getOutputs(steps))
       , mInput(input)
       , mGuess(guess)
       , mSteps(steps)
       , mH(h)
-      , mW(w) {}
+      , mW(w)
+      , model_size(model_size)
+      {}
 
   virtual void operator()(const double in[], double out[]) {
     double           dh    = (double)mH / (mSteps - 1);
     double           dw    = (double)mW / (mSteps - 1);
-    RadialCorrection guess = updateWithModel(mGuess, in);
+    RadialCorrection guess = updateWithModel(mGuess, in, model_size);
 
     for (int i = 0; i < mSteps; i++) {
       for (int j = 0; j < mSteps; j++) {
@@ -136,8 +137,8 @@ class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
       }
     }
   }
-  static void fillWithRadial(const RadialCorrection &input, double out[]) {
-    for (unsigned i = 0; i < MODEL_SIZE; i++) {
+  static void fillWithRadial(const RadialCorrection &input, double out[], int model_size) {
+    for (unsigned i = 0; i < model_size; i++) {
       if (i % 2 == 1) {
         out[i] = input.mParams.mKoeff[i];
       }
@@ -148,9 +149,9 @@ class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
     }
   }
 
-  static RadialCorrection updateWithModel(const RadialCorrection &input, const double in[]) {
+  static RadialCorrection updateWithModel(const RadialCorrection &input, const double in[], int model_size) {
     LensDistortionModelParameters params = input.mParams;
-    for (unsigned i = 0; i < MODEL_SIZE; i++) {
+    for (unsigned i = 0; i < model_size; i++) {
       if (i % 2 == 1) {
         params.mKoeff[i] = in[i];
       } else {
@@ -174,17 +175,18 @@ class RadialCorrectionInversionCostFunctionk1k2 : public FunctionArgs {
  private:
   static int getOutputs(int steps) { return 2 * steps * steps; }
 };
-RadialCorrection RadialCorrection::invertCorrectionk1k2(int h, int w, int step) {
-  LensDistortionModelParameters result = set_result(RadialCorrectionInversionCostFunctionk1k2::MODEL_POWER);
+RadialCorrection RadialCorrection::invertCorrectionEven(int h, int w, int step, int model_size) {
+
+  LensDistortionModelParameters result = set_result(model_size);
   /* Pack the guess and launch optimization */
   RadialCorrection                         guess(result);
-  RadialCorrectionInversionCostFunctionk1k2 cost(*this, guess, step, h, w);
+  RadialCorrectionInversionCostFunctionEven cost(*this, guess, step, h, w, model_size);
 
   LevenbergMarquardt lmFit = set_LM_params();
   lmFit.f                  = &cost;
 
   vector<double> initialGuess(cost.inputs);
-  RadialCorrectionInversionCostFunctionk1k2::fillWithRadial(guess, &(initialGuess[0]));
+  RadialCorrectionInversionCostFunctionEven::fillWithRadial(guess, &(initialGuess[0]), model_size);
   cout << guess.mParams << endl;
 
   EllipticalApproximation1d stats;
@@ -195,7 +197,7 @@ RadialCorrection RadialCorrection::invertCorrectionk1k2(int h, int w, int step) 
   vector<double> target(cost.outputs, 0.0);
   vector<double> optimal = lmFit.fit(initialGuess, target);
 
-  guess = RadialCorrectionInversionCostFunctionk1k2::updateWithModel(guess, &(optimal[0]));
+  guess = RadialCorrectionInversionCostFunctionEven::updateWithModel(guess, &(optimal[0]), model_size);
 
   /* Cost */
 
