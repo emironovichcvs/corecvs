@@ -302,7 +302,7 @@ LevenbergMarquardt RadialCorrection::set_LM_params(){
   lmFit.lambdaFactor = 8;
   lmFit.traceCrucial  = true;
   lmFit.traceProgress = true;
-  lmFit.trace         = true;
+  lmFit.trace         = false;
   return lmFit;
 }
 
