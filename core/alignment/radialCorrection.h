@@ -107,6 +107,9 @@ public:
 
 
     RadialCorrection invertCorrection   (int h, int w, int step);
+    LensDistortionModelParameters set_result  (int model_power);
+    LevenbergMarquardt set_LM_params();
+    RadialCorrection invertCorrectionEven   (int h, int w, int step, int model_power=4);
 
 #if 0
     RadialCorrection invertCorrectionLSE(int h, int w, int step);

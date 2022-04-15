@@ -15,168 +15,232 @@
 
 namespace corecvs {
 
+RadialCorrection::RadialCorrection(const LensDistortionModelParameters &params)
+    : FunctionArgs(2, 2)
+    , mParams(params) {}
 
-RadialCorrection::RadialCorrection(const LensDistortionModelParameters &params) :
-        FunctionArgs(2,2),
-        mParams(params)
-{
+RadialCorrection::~RadialCorrection() {}
+
+G12Buffer *RadialCorrection::doCorrectionTransform(G12Buffer *inputBuffer) {
+  return inputBuffer->doReverseDeformationBl<G12Buffer, RadialCorrection>(this, inputBuffer->h, inputBuffer->w);
 }
 
-RadialCorrection::~RadialCorrection()
-{
+RGB24Buffer *RadialCorrection::doCorrectionTransform(RGB24Buffer *inputBuffer) {
+  return inputBuffer->doReverseDeformationBlTyped<RadialCorrection>(this, inputBuffer->h, inputBuffer->w);
 }
 
-G12Buffer *RadialCorrection::doCorrectionTransform(G12Buffer *inputBuffer)
-{
-    return inputBuffer->doReverseDeformationBl<G12Buffer, RadialCorrection>
-            (this, inputBuffer->h, inputBuffer->w);
-}
+class RadialCorrectionInversionCostFunction : public FunctionArgs {
+ public:
+  enum { TANGENT_X = 0, TANGENT_Y, RADIAL_FIRST };
 
-RGB24Buffer *RadialCorrection::doCorrectionTransform(RGB24Buffer *inputBuffer)
-{
-    return inputBuffer->doReverseDeformationBlTyped<RadialCorrection>
-            (this, inputBuffer->h, inputBuffer->w);
-}
+  static const unsigned MODEL_POWER = 6;
+  static const unsigned MODEL_SIZE  = RADIAL_FIRST + MODEL_POWER;
 
-class RadialCorrectionInversionCostFunction : public FunctionArgs
-{
-public:
-    enum {
-        TANGENT_X = 0,
-        TANGENT_Y,
-        RADIAL_FIRST
-    };
+  RadialCorrection &mInput;
+  RadialCorrection &mGuess;
+  int               mSteps;
+  int               mH;
+  int               mW;
+  RadialCorrectionInversionCostFunction(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w)
+      : FunctionArgs(MODEL_SIZE, getOutputs(steps))
+      , mInput(input)
+      , mGuess(guess)
+      , mSteps(steps)
+      , mH(h)
+      , mW(w) {}
 
-    static const unsigned MODEL_POWER = 6;
-    static const unsigned MODEL_SIZE = RADIAL_FIRST + MODEL_POWER;
+  virtual void operator()(const double in[], double out[]) {
+    double           dh    = (double)mH / (mSteps - 1);
+    double           dw    = (double)mW / (mSteps - 1);
+    RadialCorrection guess = updateWithModel(mGuess, in);
 
-    RadialCorrection &mInput;
-    RadialCorrection &mGuess;
-    int mSteps;
-    int mH;
-    int mW;
+    for (int i = 0; i < mSteps; i++) {
+      for (int j = 0; j < mSteps; j++) {
+        Vector2dd point(dw * j, dh * i);
+        Vector2dd deformed    = mInput.mapToUndistorted(point); /* this could be cached */
+        Vector2dd backproject = guess.mapToUndistorted(deformed);
+        Vector2dd diff        = backproject - point;
 
-    RadialCorrectionInversionCostFunction(
-            RadialCorrection &input,
-            RadialCorrection &guess,
-            int steps,
-            int h, int w
-    ) : FunctionArgs(MODEL_SIZE, getOutputs(steps)),
-        mInput(input),
-        mGuess(guess),
-        mSteps(steps),
-        mH(h),
-        mW(w)
-    {}
+        out[2 * (i * mSteps + j)]     = diff.x();
+        out[2 * (i * mSteps + j) + 1] = diff.y();
+      }
+    }
+  }
 
-    virtual void operator()(const double in[], double out[])
-    {
-        double dh = (double)mH / (mSteps - 1);
-        double dw = (double)mW / (mSteps - 1);
-        RadialCorrection guess = updateWithModel(mGuess, in);
+  EllipticalApproximation1d aggregatedCost(const double in[]) {
+    vector<double> error(outputs);
+                   operator()(in, &error[0]);
 
-        for (int i = 0; i < mSteps; i++)
-        {
-            for (int j = 0; j < mSteps; j++)
-            {
-                Vector2dd point(dw * j, dh * i);
-                Vector2dd deformed    = mInput.mapToUndistorted(point); /* this could be cached */
-                Vector2dd backproject = guess .mapToUndistorted(deformed);
-                Vector2dd diff = backproject - point;
+    EllipticalApproximation1d result;
+    for (unsigned i = 0; i < error.size(); i++) {
+      result.addPoint(error[i]);
+    }
+    return result;
+  }
 
-                out[2 * (i * mSteps + j)    ] = diff.x();
-                out[2 * (i * mSteps + j) + 1] = diff.y();
-            }
-        }
+  static void fillWithRadial(const RadialCorrection &input, double out[]) {
+    out[TANGENT_X] = input.mParams.tangentialX();
+    out[TANGENT_Y] = input.mParams.tangentialY();
+    for (unsigned i = 0; i < MODEL_POWER; i++) {
+      out[i + RADIAL_FIRST] = input.mParams.mKoeff[i];
+    }
+  }
+
+  static RadialCorrection updateWithModel(const RadialCorrection &input, const double in[]) {
+    LensDistortionModelParameters params = input.mParams;
+    params.setTangentialX(in[TANGENT_X]);
+    params.setTangentialY(in[TANGENT_Y]);
+    for (unsigned i = 0; i < MODEL_POWER; i++) {
+      params.mKoeff[i] = in[i + RADIAL_FIRST];
     }
 
-    EllipticalApproximation1d aggregatedCost(const double in[])
-    {
-        vector<double> error(outputs);
-        operator ()(in, &error[0]);
+    return RadialCorrection(params);
+  }
 
-        EllipticalApproximation1d result;
-        for (unsigned i = 0; i < error.size(); i++)
-        {
-            result.addPoint(error[i]);
-        }   
-        return result;
-    }
-
-    static void fillWithRadial(const RadialCorrection &input, double out[])
-    {
-        out[TANGENT_X] = input.mParams.tangentialX();
-        out[TANGENT_Y] = input.mParams.tangentialY();
-        for (unsigned i = 0; i < MODEL_POWER; i++)
-        {
-            out[i + RADIAL_FIRST] = input.mParams.mKoeff[i];
-        }
-    }
-
-    static RadialCorrection updateWithModel(const RadialCorrection &input, const double in[])
-    {
-        LensDistortionModelParameters params = input.mParams;
-        params.setTangentialX(in[TANGENT_X]);
-        params.setTangentialY(in[TANGENT_Y]);
-        for (unsigned i = 0; i < MODEL_POWER; i++)
-        {
-            params.mKoeff[i] = in[i + RADIAL_FIRST];
-        }
-
-        return RadialCorrection(params);
-    }
-
-private:
-    static int getOutputs(int steps)
-    {
-        return 2 * steps * steps;
-    }
-
+ private:
+  static int getOutputs(int steps) { return 2 * steps * steps; }
 };
+class RadialCorrectionInversionCostFunctionEven : public FunctionArgs {
+ public:
+  int model_size;
 
+  RadialCorrection &mInput;
+  RadialCorrection &mGuess;
+  int               mSteps;
+  int               mH;
+  int               mW;
+
+  RadialCorrectionInversionCostFunctionEven(RadialCorrection &input, RadialCorrection &guess, int steps, int h, int w, int const model_size)
+      : FunctionArgs(model_size, getOutputs(steps))
+      , mInput(input)
+      , mGuess(guess)
+      , mSteps(steps)
+      , mH(h)
+      , mW(w)
+      , model_size(model_size)
+      {}
+
+  virtual void operator()(const double in[], double out[]) {
+    double           dh    = (double)mH / (mSteps - 1);
+    double           dw    = (double)mW / (mSteps - 1);
+    RadialCorrection guess = updateWithModel(mGuess, in, model_size);
+
+    for (int i = 0; i < mSteps; i++) {
+      for (int j = 0; j < mSteps; j++) {
+        Vector2dd point(dw * j, dh * i);
+        Vector2dd deformed    = mInput.mapToUndistorted(point); /* this could be cached */
+        Vector2dd backproject = guess.mapToUndistorted(deformed);
+        Vector2dd diff        = backproject - point;
+
+        out[2 * (i * mSteps + j)]     = diff.x();
+        out[2 * (i * mSteps + j) + 1] = diff.y();
+      }
+    }
+  }
+  static void fillWithRadial(const RadialCorrection &input, double out[], int model_size) {
+    for (unsigned i = 0; i < model_size; i++) {
+      if (i % 2 == 1) {
+        out[i] = input.mParams.mKoeff[i];
+      }
+
+      else {
+        out[i] = 0;
+      }
+    }
+  }
+
+  static RadialCorrection updateWithModel(const RadialCorrection &input, const double in[], int model_size) {
+    LensDistortionModelParameters params = input.mParams;
+    for (unsigned i = 0; i < model_size; i++) {
+      if (i % 2 == 1) {
+        params.mKoeff[i] = in[i];
+      } else {
+        params.mKoeff[i] = 0;
+      }
+    }
+
+    return RadialCorrection(params);
+  }
+  EllipticalApproximation1d aggregatedCost(const double in[]) {
+    vector<double> error(outputs);
+                   operator()(in, &error[0]);
+
+    EllipticalApproximation1d result;
+    for (unsigned i = 0; i < error.size(); i++) {
+      result.addPoint(error[i]);
+    }
+    return result;
+  }
+
+ private:
+  static int getOutputs(int steps) { return 2 * steps * steps; }
+};
+RadialCorrection RadialCorrection::invertCorrectionEven(int h, int w, int step, int model_size) {
+
+  LensDistortionModelParameters result = set_result(model_size);
+  /* Pack the guess and launch optimization */
+  RadialCorrection                         guess(result);
+  RadialCorrectionInversionCostFunctionEven cost(*this, guess, step, h, w, model_size);
+
+  LevenbergMarquardt lmFit = set_LM_params();
+  lmFit.f                  = &cost;
+
+  vector<double> initialGuess(cost.inputs);
+  RadialCorrectionInversionCostFunctionEven::fillWithRadial(guess, &(initialGuess[0]), model_size);
+  cout << guess.mParams << endl;
+
+  EllipticalApproximation1d stats;
+  stats = cost.aggregatedCost(&(initialGuess[0]));
+  SYNC_PRINT(("Start Mean Error: %f px\n", stats.getRadiusAround0()));
+  SYNC_PRINT(("Start Max  Error: %f px\n", stats.getMax()));
+
+  vector<double> target(cost.outputs, 0.0);
+  vector<double> optimal = lmFit.fit(initialGuess, target);
+
+  guess = RadialCorrectionInversionCostFunctionEven::updateWithModel(guess, &(optimal[0]), model_size);
+
+  /* Cost */
+
+  cout << guess.mParams << endl;
+  stats = cost.aggregatedCost(&(optimal[0]));
+  SYNC_PRINT(("Final Mean Error: %f px\n", stats.getRadiusAround0()));
+  SYNC_PRINT(("Final Max  Error: %f px\n", stats.getMax()));
+
+  return guess;
+}
+
+#if 0
+RadialCorrection RadialCorrection::invertCorrectionLSE(int h, int w, int step)
+{
+    double dh = (double)mH / (mSteps - 1);
+    double dw = (double)mW / (mSteps - 1);
+    RadialCorrection guess = updateWithModel(mGuess, in);
+
+    for (int i = 0; i < mSteps; i++)
+    {
+        for (int j = 0; j < mSteps; j++)
+        {
+            Vector2dd point(dw * j, dh * i);
+            Vector2dd deformed    = mInput.mapToUndistorted(point); /* this could be cached */
+            Vector2dd backproject = guess .mapToUndistorted(deformed);
+            Vector2dd diff = backproject - point;
+
+            out[2 * (i * mSteps + j)    ] = diff.x();
+            out[2 * (i * mSteps + j) + 1] = diff.y();
+        }
+    }
+}
+#endif
 
 RadialCorrection RadialCorrection::invertCorrection(int h, int w, int step)
 {
-    LensDistortionModelParameters input = this->mParams;
-    LensDistortionModelParameters result;
-
-    /* make initial guess */
-
-    result.setPrincipalX(input.principalX());
-    result.setPrincipalY(input.principalY());
-    result.setNormalizingFocal(input.normalizingFocal());
-
-    result.setTangentialX(-input.tangentialX());
-    result.setTangentialY(-input.tangentialY());
-
-    result.setScale (1.0 / input.scale());
-    result.setAspect(1.0 / input.scale()); /*< bad guess I believe */
-
-    result.mKoeff.resize(RadialCorrectionInversionCostFunction::MODEL_POWER);
-    for (unsigned i = 0; i < RadialCorrectionInversionCostFunction::MODEL_POWER; i++)
-    {
-        if (i < input.mKoeff.size()) {
-            result.mKoeff[i] = -input.mKoeff[i];
-        } else {
-            result.mKoeff[i] = 0.0;
-        }
-    }
-
+    LensDistortionModelParameters result = set_result(RadialCorrectionInversionCostFunction::MODEL_POWER);
     /* Pack the guess and launch optimization */
     RadialCorrection guess(result);
     RadialCorrectionInversionCostFunction cost(*this, guess, step, h, w);
 
-    LevenbergMarquardt lmFit;
-    lmFit.maxIterations = 10000001;
-    lmFit.maxLambda = 10e80;
-    lmFit.fTolerance = 1e-19;
-    lmFit.xTolerance = 1e-19;
-
-    lmFit.lambdaFactor = 8;
+    LevenbergMarquardt lmFit = set_LM_params();
     lmFit.f = &cost;
-    lmFit.traceCrucial  = true;
-    lmFit.traceProgress = true;
-    lmFit.trace         = true;
 
     vector<double> initialGuess(cost.inputs);
     RadialCorrectionInversionCostFunction::fillWithRadial(guess, &(initialGuess[0]));
@@ -200,6 +264,46 @@ RadialCorrection RadialCorrection::invertCorrection(int h, int w, int step)
     SYNC_PRINT(("Final Max  Error: %f px\n", stats.getMax()));
 
     return guess;
+}
+LensDistortionModelParameters RadialCorrection::set_result (int model_power){
+  LensDistortionModelParameters input = this->mParams;
+  LensDistortionModelParameters result;
+
+  /* make initial guess */
+
+  result.setPrincipalX(input.principalX());
+  result.setPrincipalY(input.principalY());
+  result.setNormalizingFocal(input.normalizingFocal());
+
+  result.setTangentialX(-input.tangentialX());
+  result.setTangentialY(-input.tangentialY());
+
+  result.setScale (1.0 / input.scale());
+  result.setAspect(1.0 / input.scale()); /*< bad guess I believe */
+
+  result.mKoeff.resize(model_power);
+  for (unsigned i = 0; i < model_power; i++)
+  {
+    if (i < input.mKoeff.size()) {
+      result.mKoeff[i] = -input.mKoeff[i];
+    } else {
+      result.mKoeff[i] = 0.0;
+    }
+  }
+  return result;
+}
+LevenbergMarquardt RadialCorrection::set_LM_params(){
+  LevenbergMarquardt lmFit;
+  lmFit.maxIterations = 10000001;
+  lmFit.maxLambda = 10e80;
+  lmFit.fTolerance = 1e-19;
+  lmFit.xTolerance = 1e-19;
+
+  lmFit.lambdaFactor = 8;
+  lmFit.traceCrucial  = true;
+  lmFit.traceProgress = true;
+  lmFit.trace         = false;
+  return lmFit;
 }
 
 #if 0
